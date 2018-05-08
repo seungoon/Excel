@@ -1,5 +1,6 @@
 ※参考サイト： https://qiita.com/midori44/items/acab9106e6dad9653e73
 ※懸念点　　： https://blogs.msdn.microsoft.com/office_client_development_support_blog/2012/05/23/office/
+※サンプル　： http://hanatyan.sakura.ne.jp/vb2005/vb2013excel01.htm
 
 どうして検索上位がMicrosoft.Office.Interop.Excelを使う方法ばかりなのか
 Excel操作といえば VBA であり、豊富な VBA のサンプルが数多く存在すること
@@ -175,3 +176,314 @@ finally{}の中でMarshal.ReleaseComObject()を呼び出すことによって、
 ループの中で直接Cellオブジェクトを読んでしまうと非常に時間がかかるため、セルの値を取得するだけであれば、あらかじめ必要なシート範囲を二次元オブジェクト配列にコピーすることで劇的に高速化できます。
 最後に
 サンプルコードでは触りの部分だけしか紹介できていないので、書き込みや保存については各ライブラリのドキュメントや他の紹介記事を参照ください。
+
+
+*******************************************************************************************************
+
+　下記プログラムコードに関する補足・注意事項　
+動作確認：Windows 8.1 (Windows 7) / VB2013 (VB2010) / Framework 4.5.1 / 対象の CPU：x86 / Excel 2013
+Option　：[Compare Text] [Explicit On] [Infer On] [Strict On]
+Imports ：Microsoft.Office.Interop
+参照設定：Microsoft Excel 15.0 Object Library /　　　　　　　参照設定方法参照
+使用コン：Button1 ～ Button2 
+トロール：
+このサンプル等の内容を無断で転載、掲載、配布する事はお断りします。(私の修正・改訂・削除等が及ばなくなるので)
+必要ならリンクをはるようにして下さい。(引用の場合は引用元のリンクを明記して下さい)
+このページのトップへ移動します。 １．VB2013 から Excel 2013 を操作する為の基本的な操作方法(起動・書き込み・保存・終了処理)
+下記コード及びカラー化は、自作[Excel Com オブジェクトの解放漏れチェックツール(09_Xls_10)]ツールでの実行結果です。
+
+Imports Microsoft.Office.Interop　　　　　'Excel の COM コンポーネント関係
+Imports Microsoft.Office.Core　　　　　　 'Excel の定数関係
+
+Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+'Excel を起動のボタンの処理
+　　'=============================================================================
+　　Call ExcelOpen("", "")　　 '新規ファイルをオープンして、Excel を起動
+
+　　'既存のファイルをオープンして、Excel を起動する場合
+　　'Call ExcelOpen(System.IO.Path.GetFullPath("..\..\..\data\DBTest.xls"), "Sheet1")
+　　'=============================================================================
+
+　　'--------------------------------------------------------------------------
+　　'１．単純なデータの入力と計算式の入力例
+　　Dim xlRange As Excel.Range
+　　Dim strDat(2, 0) As Object
+　　xlRange = xlSheet.Range("A1:A3")　　'データの入力セル範囲
+　　strDat(0, 0) = "10"　　　　　　　　 'データの作成
+　　strDat(1, 0) = "20"
+　　strDat(2, 0) = "=Sum(A1:A2)"　　　　'計算式
+　　xlRange.Value = strDat　　　　　　　'セルへデータの入力
+　　MRComObject(xlRange)　　　　　　　　'Range オブジェクトの解放処理
+　　'--------------------------------------------------------------------------
+End Sub
+
+Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
+'Excel を終了のボタンの処理
+　　'=============================================================================
+　　'Excelファイルを上書き保存(True 又省略すれば)して終了処理を実行
+　　Call ExcelClose(IO.Path.GetFullPath(".\Test.xlsx"), False)　'False の場合保存しないで終了
+　　'=============================================================================
+End Sub
+
+
+#Region "Private 変数の宣言"
+
+Private xlApp As Excel.Application
+Private xlBooks As Excel.Workbooks
+Private xlBook As Excel.Workbook
+Private xlSheets As Excel.Sheets
+Private xlSheet As Excel.Worksheet
+Private frgClose As Boolean　　　　　'ユーザーが Excel を閉じようとしたかのフラグ
+
+#End Region
+
+#Region "Excel の起動時の処理関係"
+
+Private Sub ExcelOpen(ByVal FilePath As String, ByVal SheetName As String)
+'Excel のオープン処理用プロシージャ
+　　frgClose = False　 '起動中は、ユーザーが Excel を閉じれないように
+　　xlApp = New Excel.Application
+
+　　'Excel の WorkbookBeforeClose イベントを取得
+　　AddHandler xlApp.WorkbookBeforeClose, AddressOf xlApp_WorkbookBeforeClose
+
+　　xlBooks = xlApp.Workbooks
+　　If FilePath.Length = 0 Then
+　　　　'新規のファイルを開く場合
+　　　　xlBook = xlBooks.Add
+　　　　xlSheets = xlBook.Worksheets
+　　　　xlSheet = CType(xlSheets.Item(1), Excel.Worksheet)
+　　Else
+　　　　'既存のファイルを開く場合
+　　　　xlBook = xlBooks.Open(FilePath)
+　　　　xlSheets = xlBook.Worksheets
+　　　　xlSheet = CType(xlSheets(SheetName), Excel.Worksheet)
+　　End If
+　　xlApp.Visible = True
+End Sub
+
+#End Region
+
+#Region "Excel の終了・保存処理関係"
+
+Private Sub ExcelClose(ByVal FilePath As String, Optional ByVal CancelSave As Boolean = True)
+'Excelファイルを上書き保存して終了処理用プロシージャ
+　　frgClose = True　　　　　　　 'True : 閉じる事ができる(プログラムからの終了なので)
+　　xlApp.DisplayAlerts = False　 '保存時の問合せのダイアログを非表示に設定
+　　If CancelSave Then
+　　　　Dim kts As String = System.IO.Path.GetExtension(FilePath).ToLower()
+　　　　Dim fm As Excel.XlFileFormat
+　　　　'拡張子に合せて保存形式を変更
+　　　　Select Case kts
+　　　　　　Case ".csv"　　'CSV (カンマ区切り) 形式
+　　　　　　　　fm = Excel.XlFileFormat.xlCSV
+　　　　　　Case ".xls"　　'Excel 97～2003 ブック形式
+　　　　　　　　fm = Excel.XlFileFormat.xlExcel8
+　　　　　　Case ".xlsx"　 'Excel 2007～ブック形式
+　　　　　　　　fm = Excel.XlFileFormat.xlOpenXMLWorkbook
+　　　　　　Case ".xlsm"　 'Excel 2007～マクロ有効ブック形式
+　　　　　　　　fm = Excel.XlFileFormat.xlOpenXMLWorkbookMacroEnabled
+　　　　　　Case Else　　　'必要なものは、追加して下さい。
+　　　　　　　　fm = Excel.XlFileFormat.xlWorkbookDefault
+　　　　　　　　MessageBox.Show("ファイルの保存形式を確認して下さい。")
+　　　　End Select
+　　　　Try
+　　　　　　xlBook.SaveAs(Filename:=FilePath, FileFormat:=fm)　　'ファイルに保存
+　　　　Catch ex As Exception
+　　　　　　MessageBox.Show(ex.Message)
+　　　　End Try
+　　End If
+　　MRComObject(xlSheet)　　　　　'xlSheet の解放
+　　MRComObject(xlSheets)　　　　 'xlSheets の解放
+　　xlBook.Close()　　　　　　　　'xlBook を閉じる
+　　MRComObject(xlBook)　　　　　 'xlBook の解放
+　　MRComObject(xlBooks)　　　　　'xlBooks の解放
+　　xlApp.Quit()　　　　　　　　　'Excelを閉じる 
+　　MRComObject(xlApp)　　　　　　'xlApp を解放
+End Sub
+
+Private Sub xlApp_WorkbookBeforeClose(ByVal Wb As Excel.Workbook, ByRef Cancel As Boolean)
+'VB2010 から Excel の WorkbookBeforeClose イベントを監視してユーザーが Excel を閉じれないようにする
+'(VB2010 から Excel を操作している途中でユーザーが勝手に Excel を閉じるとエラーが発生するので)
+　　If frgClose = False Then
+　　　　Cancel = True　　 'ユーザーが Excel を閉じようとしたので、処理をキャンセルする
+　　Else
+　　　　Cancel = False　　'キャンセルしない(閉じる)
+　　End If
+End Sub
+
+#End Region
+
+#Region "COM オブジェクトの解放(デクリメント処理)処理関係"
+
+'今まで使っていた方法では、Option Strict On の時にエラーとなったので、下記の
+'魔界の仮面弁士さんの投稿を使用させて頂きました。詳しくは、下記を参照してください。
+'http://hanatyan.sakura.ne.jp/vbnetbbs/wforum.cgi?mode=allread&no=6370#6374
+
+'VB2005/VB2008/VB2010/VB2013 用
+''' <summary>
+''' COMオブジェクトの参照カウントをデクリメントします。
+''' </summary>
+''' <typeparam name="T">(省略可能)</typeparam>
+''' <param name="objCom">
+''' COM オブジェクト持った変数を指定します。
+''' このメソッドの呼出し後、この引数の内容は Nothing となります。
+''' </param>
+''' <param name="force">
+''' すべての参照を強制解放する場合はTrue、現在の参照のみを減ずる場合はFalse。
+''' </param>
+Public Shared Sub MRComObject(Of T As Class)(ByRef objCom As T,
+　　　　　　　　　　　　　　　　　　 Optional ByVal force As Boolean = False)
+　　If objCom Is Nothing Then
+　　　　Return
+　　End If
+　　Try
+　　If System.Runtime.InteropServices.Marshal.IsComObject(objCom) Then
+　　　　If force Then
+　　　　　　System.Runtime.InteropServices.Marshal.FinalReleaseComObject(objCom)
+　　　　Else
+　　　　　　System.Runtime.InteropServices.Marshal.ReleaseComObject(objCom)
+　　　　End If
+　　End If
+　　Finally
+　　　　objCom = Nothing
+　　End Try
+End Sub
+
+#End Region
+
+このページのトップへ移動します。 ２．Excelのプロセスが正常に終了しない理由
+　.NET 対応の Visual Basic から Excel VBA を使って、Visual Basic から Excel を操作した場合、タスクマネージャーに Excel.exe が残ったままになる事が、VB6.0 の頃よりはるかに多く発生しております。
+
+　この事は、サポート情報の［Visual Studio .NET クライアントからオートメーション後に Office アプリケーションが終了しません］にも書かれているように、COM オブジェクトを参照すると、参照カウントが一つアップします。
+参照が解放された時に参照カウントが一つ減り、参照カウントが、0 の時でないとCOM オブジェクトは終了しません。
+
+　従って、COM オブジェクトを使用後は、プログラム上から、Marshal.ReleaseComObject メソッド 等を使って参照カウントをデクリメント(参照カウントを 1減じる処理)する必要があります。
+ここで言うCOM オブジェクトとはどのような物が該当するのかを知っておく必要がありますので、下記にまとめて見ました。
+　　　　COM オブジェクト 及び Com オブジェクト等を返すプロパティ 一覧
+
+　そこで問題になるのが、上記のようなCOM オブジェクトを使用した場合は、使用するCOM オブジェクト１個対して夫々デクリメント操作が必要なのに、複数のCOM オブジェクトを同時に参照すると、どれか１個だけしかデクリメントができません。
+
+　例えば、フォントを太字にする場合、VBA や VB6.0 では、xlSheet.Range("A1").Font.Bold = True のような書き方が一般的でした。
+これをVB.NET(便宜上.NET系のVisual Basicをこう書かせて頂きます)で使用すると Excel.exe がプロセスに残ってしまいます。
+そこで、使用したCom オブジェクトに対して各々デクリメントしてやる必要があります。
+
+　デクリメントするには、Com オブジェクト を変数に受けて使用し、使い終わった時点で、Marshal.ReleaseComObject メソッドを使って使用したCom オブジェクト の変数に対してデクリメントする必要があります。
+xlSheet(Worksheet オブジェクトを変数にうけたもの)　Range　Font の３つのCom オブジェクトを使った事になりますからそれぞれのCom オブジェクトを別々に変数に受けて使用しないとデクリメント操作ができません。
+
+　従って、xlSheet　は、すでに変数にうけたものですから必要はありませんが、Range や Font は、一旦変数に受けて使用する必要があり、従って、VB.NET 用にコードを書くと下記のようになります。
+
+　 Dim xlRange As Excel.Range　　　 '使用する Range オブジェクト用の変数を宣言する
+　 xlRange = xlSheet.Range("A1")　　'Range オブジェクト用の変数に、Range("A1") を代入する
+　 Dim xlFont As Excel.Font　　　　 '使用する Font オブジェクト用の変数を宣言する
+　 xlFont = xlRange.Font　　　　　　'Font オブジェクト用の変数に、Range("A1")の Font を代入する
+　 xlFont.Bold = True　　　　　　　 'Range("A1")の Font の Bold プロパティを太字に設定する
+　 System.Runtime.InteropServices.Marshal.ReleaseComObject(xlFont)　'Font(xlFont)オブジェクトのデクリメントの実施 
+　 System.Runtime.InteropServices.Marshal.ReleaseComObject(xlRange) 'Range(xlRange)オブジェクトのデクリメントの実施 
+
+　上記のように使用した夫々の Com オブジェクトは、変数に受けて、その変数に対してデクリメントしないと Com オブジェクトは終了せず、Excel を閉じても、タスクマネージャーのプロセス一覧のところに、Excel.exe が残ったままになるのです。
+
+　ここで、問題になるのが、どれが、Com オブジェクトで、いつデクリメントする必要があるのかと言う事になります。
+COM オブジェクト及び Com オブジェクト等を返すプロパティ等を知っておく事は無論の事、Cells プロパティのような Default プロパティがある Com オブジェクトを返すプロパティ等を使用した場合、つい下記のように使ってしまいがちですが、これでは、十分にデクリメントがされず、解放されません。
+
+　 Dim xlCells As Excel.Range
+　 'xlCells = xlSheet.Cells(1, 1)　　'Strict On では、暗黙的な変換はできません とエラー表示になる
+　 xlCells = DirectCast(xlSheet.Cells(1, 1), Excel.Range)　'従って、このように型変換する
+　 Dim xlFont As Excel.Font
+　 xlFont = xlCells.Font
+　 xlFont.Bold = True
+　 MRComObject(xlFont)　 'Font(xlFont) オブジェクトのデクリメントの実施 
+　 MRComObject(xlCells)　'Range(xlCells) オブジェクトのデクリメントの実施 
+
+xlSheet.Cells(1, 1) は、Default プロパティ 省略した書き方なので、正しくは、xlsheet.Cells._Default(1, 1) 又は、xlSheet.Cells.Item(1, 1) となり、Cells が返す Range オブジェクトと_Default が返すRange オブジェクトを別々に変数に受けてデクリメントしないと解放されません。(正しくは、下記のようになります。)
+
+　 Dim xlCells As Excel.Range
+　 Dim xlRange As Excel.Range
+　 xlCells = xlSheet.Cells
+　 xlRange = DirectCast(xlCells.Item(1, 1), Excel.Range)
+　 Dim xlFont As Excel.Font
+　 xlFont = xlRange.Font
+　 xlFont.Bold = True
+　 MRComObject(xlFont)
+　 MRComObject(xlRange)
+　 MRComObject(xlCells)
+　
+　このように一旦、Range オブジェクトに変換しなければならず、VB6.0 や VBA のような使い方ができず、コードも複雑になるし、なにより間違った使い方をすると解放漏れの恐れがあり、Cells プロパティのようなDefault プロパティのある、Rangr オブジェクトを返す、プロパティのご使用はお薦めできません。
+(どうせ、Range オブジェクトに変換するなら、最初からRange オブジェクトを使うべきかと)
+
+　このようなDefault プロパティを返すプロパティは、他にも色々ありますので注意して下さい。
+見分け方としては、Com オブジェクトを返すプロパティの中で、最後に複数系を表す s がついているプロパティで、メンバーに、Item プロパティが存在するようなものは、十分確認して下さい。
+代表的なものとしては、Workbooks　Sheets　Cells　Rows　Columns　等があります。
+
+　もう一つの問題点のいつデクリメントする必要があるのかと言う事ですが、基本的には、[使い終わった時点]と言う事になりますが、それは、変数のスコープを指しているのと勘違いしている場合がありますが、参照先を変更した場合等にも摘要されます。
+
+下記のような場合、どの位置でデクリメントを実施すべきでしょうか？
+　 Dim xlRange As Excel.Range = Nothing
+　 xlRange = xlSheet.Range("A1")
+　 xlRange.Value = "123"
+　 Dim xlFont As Excel.Font
+　 xlFont = xlRange.Font
+　 xlFont.Bold = True
+　 xlRange = xlSheet.Range("A2")
+　 xlRange.Value = "321"
+　 xlFont = xlRange.Font
+　 xlFont.Bold = True
+　 For c As Integer = 1 To 10
+　 　 xlRange = xlSheet.Range(R1ToA1(1, c))
+　 　 xlRange.Value = c
+　 Next c
+
+正しくは、下記のようになります。
+　 Dim xlRange As Excel.Range = Nothing
+　 xlRange = xlSheet.Range("A1")
+　 xlRange.Value = "123"
+　 Dim xlFont As Excel.Font
+　 xlFont = xlRange.Font
+　 xlFont.Bold = True
+　 MRComObject(xlFont)
+　 MRComObject(xlRange)
+　 '次の行で、xlRange は、A1 を参照していたのに、A2 に参照先が変わるので変わると
+　 'xlRange は、Range("A1") ではなくなり、xlRange をデクリメントしてもRange("A1") の
+　 'Com オブジェクトのデクリメントは、行われず解放できなくので参照先が変更される前に
+　 '上記の行でデクリメントをしておく必要があります。
+　 xlRange = xlSheet.Range("A2")
+　 xlRange.Value = "321"
+　 xlFont = xlRange.Font
+　 xlFont.Bold = True
+　 MRComObject(xlFont)　　 '同様に Font オブジェクトも参照先が変更されたので
+　 MRComObject(xlRange)　　'同様にここでも
+　 For c As Integer = 1 To 10
+　　　xlRange = xlSheet.Range(R1ToA1(1, c))
+　　　xlRange.Value = c
+　　　MRComObject(xlRange) '同様にここでも
+　 Next c
+
+これが、ここで言う[使い終わった時点]と言う事です。
+
+　上記のコードは、実際にご自分で十分に試して見て頭に叩き込んでおいて下さい。
+どれが、Com オブジェクトで、いつデクリメントする必要があるのかと言う事を十分理解してコードを書けば、Excel.exe がプロセスに残るという事はなくなるはずです。
+
+その他、VB.NET(VB2005/VB2008/VB2010) 系からExcel を操作する上での注意事項をまとめてみました。
+
+１．開発環境は、参照設定をして、事前バインディング(アーリーバインディング)で使用し、Option Strict On に設定した
+　　VB2010(VB2008) 以上で開発するようにして下さい。
+　　事前バインディングで使用されると解放もれが発生し易く、原因も掴めにくかったりもしますので、掲示板で質問される
+　　ようなレベルの方は、絶対に使用されない事をお薦めします。（自分で問題解決ができるのなら別ですが）
+
+２．次に、起動・終了だけの基本的なプログラムを書いた時点でテストしてプロセスが終了しているか確認しておく。
+　　開発中は、下記のようなコードで、起動・終了をしながらテストすると便利です。
+　　(サンプル投稿用掲示板に投稿してある起動・終了用コード)
+
+３．コードはマクロ等をそのままペーストせず、キーボードから入力する、そうする事によって自動メンバー表示や
+　　パラメーターヒントが表示される。特に、VB2010 等を使用するとエラーの修正機能があったりとかで、VB2005 等より
+　　かなり便利になっております。
+
+４．自動メンバー表示等が表示されない場合は、コードの使い方が間違っている場合があるのでヘルプ等で確認する事。
+
+５．今までと違った使い方や使った事のないプロパティ等を使用した場合は、その時点でプロセスが終了するか確認しておく。
+
+６．コードの区切りの時点でそこまでの動作でプロセスがきちんと終了する事を確認しながら進める。
+
+以上の６項目を守れば少なくとも、他人に間違い探しを依頼する事はないはずです。
+作ってしまってからプロセスが終了していない事に気が付いたのなら、確認できている部分を除いてコメント化して、確認しながら順次コメントを外して原因箇所を掴んで下さい。
+
