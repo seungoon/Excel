@@ -1,4 +1,5 @@
 ※参考サイト： https://qiita.com/midori44/items/acab9106e6dad9653e73
+※懸念点　　： https://blogs.msdn.microsoft.com/office_client_development_support_blog/2012/05/23/office/
 
 どうして検索上位がMicrosoft.Office.Interop.Excelを使う方法ばかりなのか
 Excel操作といえば VBA であり、豊富な VBA のサンプルが数多く存在すること
