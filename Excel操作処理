@@ -1,6 +1,7 @@
 ※参考サイト： https://qiita.com/midori44/items/acab9106e6dad9653e73
 ※懸念点　　： https://blogs.msdn.microsoft.com/office_client_development_support_blog/2012/05/23/office/
 ※サンプル　： http://hanatyan.sakura.ne.jp/vb2005/vb2013excel01.htm
+              http://nkurilog.blogspot.jp/2018/01/vbnetc-excel.html
 
 どうして検索上位がMicrosoft.Office.Interop.Excelを使う方法ばかりなのか
 Excel操作といえば VBA であり、豊富な VBA のサンプルが数多く存在すること
@@ -486,4 +487,212 @@ xlSheet.Cells(1, 1) は、Default プロパティ 省略した書き方なので
 
 以上の６項目を守れば少なくとも、他人に間違い探しを依頼する事はないはずです。
 作ってしまってからプロセスが終了していない事に気が付いたのなら、確認できている部分を除いてコメント化して、確認しながら順次コメントを外して原因箇所を掴んで下さい。
+
+*************************************************************************************************************************
+
+VB.NETとC#からのExcel出力
+検索すればあちこちで見つかる VB.Net および C# からの Excel 出力ですが、意外と以下の条件を満たすものがないようですので、サンプルコードを掲載しておきます。
+
+条件
+Excel 終了時にきちんと COM の開放が行われ、EXCEL.EXE が終了する。
+高速化（2次元配列を使用）している。
+書式設定が行われている。
+遅延バインディング
+参考
+Excelファイルを C# と VB.NET で読み込む “正しい” 方法 - Qiita
+
+はじめに “Excel C#” や “Excel VB.NET” でググった新人プログラマが、古い情報や間違った情報で茨の道を選ばずに済むようにと思って書きました。 この記事は、Windows で Visual Studio を使用したデスクトップアプリケーション開発を想定しています。 VB.NET でも作成可能ですが、サンプルコードでは C# 6.0 を使用しています。どちらでもいいなら C# を使いましょう。 C# または VB.NET でExcel…
+
+
+qiita.com
+サンプルコードは、Microsoft.Office.Interop.Excel を使用しています。 
+（リンク先では推奨されていないのですが、外部DLLを使わずにすみますので）
+
+サンプルコード
+仕様
+DataTable の内容を新規 Book に出力し、そのまま（保存せずに）表示します。
+String 型は文字列にしています。DateTime型は、”yyyy/mm/dd”の形式にしています。（Date 型と DateTime 型で書式を変えたい場合は文字列化した方が良いと思います。）
+罫線と列幅の自動調整まで行っています。
+VB.NET
+Option Strict Off
+Imports Microsoft.VisualBasic
+Imports System.Data
+    Public Sub ExportExcel(ByVal dt As DataTable)
+        Dim xlApp As Object = Nothing
+        Dim xlBooks As Object = Nothing
+        Dim xlBook As Object = Nothing
+        Dim xlSheet As Object = Nothing
+        Dim xlCells As Object = Nothing
+        Dim xlRange As Object = Nothing
+        Dim xlCellStart As Object = Nothing
+        Dim xlCellEnd As Object = Nothing
+ 
+        Try
+            xlApp = CreateObject("Excel.Application")
+            xlBooks = xlApp.Workbooks           
+            xlBook = xlApp.Workbooks.Add
+            xlSheet = xlBook.WorkSheets(1)
+            xlCells = xlSheet.Cells
+ 
+            Dim dc As DataColumn
+            Dim columnData(dt.Rows.Count, 1) As Object
+            Dim row As Integer = 1
+            Dim col As Integer = 1
+ 
+            For col = 1 To dt.Columns.Count
+                row = 1
+                dc = dt.Columns(col - 1)
+                'ヘッダー行の出力
+                xlCells(row, col).value = dc.ColumnName
+                row = row + 1
+ 
+                ' 列データを配列に格納
+                For i As Integer = 0 To dt.Rows.Count - 1
+                    columnData(i, 0) = String.Format(dt.Rows(i)(col - 1))
+                Next
+                xlCellStart = xlCells(row, col)
+                xlCellEnd = xlCells(row + dt.Rows.Count - 1, col)
+                xlRange = xlSheet.Range(xlCellStart, xlCellEnd)
+                ' Excel書式設定
+                Select Case dc.DataType.Name
+                    Case "String"
+                        xlRange.NumberFormatLocal = "@"
+                    Case "DateTime"
+                        xlRange.NumberFormatLocal = "yyyy/mm/dd"
+                        'Case "Decimal"
+                        '    xlRange.NumberFormatLocal = "#,###"
+                End Select
+                xlRange.value = columnData
+            Next
+ 
+            xlCells.EntireColumn.AutoFit()
+            xlRange = xlSheet.UsedRange
+            xlRange.Borders.LineStyle = 1   'xlContinuous
+            xlApp.Visible = True
+ 
+        Catch
+            xlApp.DisplayAlerts = False
+            xlApp.Quit()
+            Throw
+        Finally
+            If xlCellStart IsNot Nothing Then System.Runtime.InteropServices.Marshal.ReleaseComObject(xlCellStart)
+            If xlCellEnd IsNot Nothing Then System.Runtime.InteropServices.Marshal.ReleaseComObject(xlCellEnd)
+            If xlRange IsNot Nothing Then System.Runtime.InteropServices.Marshal.ReleaseComObject(xlRange)
+            If xlCells IsNot Nothing Then System.Runtime.InteropServices.Marshal.ReleaseComObject(xlCells)
+            If xlSheet IsNot Nothing Then System.Runtime.InteropServices.Marshal.ReleaseComObject(xlSheet)
+            If xlBooks IsNot Nothing Then System.Runtime.InteropServices.Marshal.ReleaseComObject(xlBooks)
+            If xlBook IsNot Nothing Then System.Runtime.InteropServices.Marshal.ReleaseComObject(xlBook)
+            If xlApp IsNot Nothing Then System.Runtime.InteropServices.Marshal.ReleaseComObject(xlApp)
+ 
+            GC.Collect()
+        End Try
+    End Sub
+C# (4.0以上)
+using System.Data;
+        public void ExportExcel(DataTable dt)
+        {
+            dynamic xlApp = null;
+            dynamic xlBooks = null;
+            dynamic xlBook = null;
+            dynamic xlSheet = null;
+            dynamic xlCells = null;
+            dynamic xlRange = null;
+            dynamic xlCellStart = null;
+            dynamic xlCellEnd = null;
+            try
+            {
+                xlApp = Activator.CreateInstance(Type.GetTypeFromProgID("Excel.Application"));
+                xlBooks = xlApp.Workbooks;
+                xlBook = xlBooks.Add;
+                xlSheet = xlBook.WorkSheets(1);
+                xlCells = xlSheet.Cells;
+ 
+                DataColumn dc;
+                object[,] columnData = new object[dt.Rows.Count, 1];
+                int row = 1;
+                int col = 1;
+ 
+                for (col = 1; (col <= dt.Columns.Count); col++)
+                {
+                    row = 1;
+                    dc = dt.Columns[(col - 1)];
+                    // ヘッダー行の出力
+                    xlCells[row, col].value2 = dc.ColumnName;
+                    row++;
+                    // 列データを配列に格納
+                    for (int i = 0; (i <= (dt.Rows.Count - 1)); i++)
+                    {
+                        columnData[i, 0] = string.Format("{0}",dt.Rows[i][(col - 1)]);
+                    }
+ 
+                    xlCellStart = xlCells[row, col];
+                    xlCellEnd = xlCells[(row + (dt.Rows.Count - 1)), col];
+                    xlRange = xlSheet.Range(xlCellStart, xlCellEnd);
+                    // Excel書式設定
+                    switch (dc.DataType.Name)
+                    {
+                        case "String":
+                            xlRange.NumberFormatLocal = "@";
+                            break;
+                        case "DateTime":
+                            xlRange.NumberFormatLocal = "yyyy/mm/dd";
+                            break;
+                    }
+                    xlRange.value2 = columnData;
+                }
+ 
+                xlCells.EntireColumn.AutoFit();
+                xlRange = xlSheet.UsedRange;
+                xlRange.Borders.LineStyle = 1;  // xlContinuous
+                xlApp.Visible = true;
+            }
+            catch
+            {
+                xlApp.DisplayAlerts = false;
+                xlApp.Quit();
+                throw;
+            }
+            finally
+            {
+                if (xlCellStart != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(xlCellStart);
+                if (xlCellEnd != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(xlCellEnd);
+                if (xlRange != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(xlRange);
+                if (xlCells != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(xlCells);
+                if (xlSheet != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(xlSheet);
+                if (xlBook != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(xlBook);
+                if (xlBooks != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(xlBooks);
+                if (xlApp != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(xlApp);
+ 
+                GC.Collect();
+            }
+        }
+C# での注意点
+遅延バインディングにするため dynamic 型を使用しているので 4.0 以上が必要です。
+Microsoft.Csharp の参照設定をしてください。
+ネット上のコードで気になったこと
+Workbooks の変数格納
+Workbooks オブジェクトを変数に格納せず xlSheet = xlBooks.Add.WorkSheets(1); としているものも見受けられました。 
+c# - How do I properly clean up Excel interop objects? - Stack Overflow 
+試したところ、VB.NET では変数に格納しなくても EXCEL.EXE は終了しましたが、C# では終了しませんでした。サンプルコードでは VB.NET でも変数に格納するようにしています。
+
+get_Range メソッドとRange プロパティ
+Range の 取得に get_Range メソッドを使っている例がありましたが、 get_Range メソッドは MSDNに
+
+セルまたはセルの範囲を表す Microsoft.Office.Interop.Excel.Range オブジェクトを取得します。 このメソッドの代わりに Range プロパティを使用してください。
+
+との記載があるのと、c# - Worksheet get_Range throws exception - Stack Overflow 
+によると、.NET4.0 からエラーになるようです。サンプルコードでは、Range プロパティを使用するようにしました。
+
+Range.Value と Range.Value2
+Excel のセルへの書き込みにValue プロパティと Value2 プロパティを使っているものがあります。両者の違いは
+
+Value プロパティとの相違点は、Value2 プロパティでは、通貨型 (Currency) および日付型 (Date) のデータ型を使用しない点だけです。
+
+のようです。 
+なぜ、二つのコードが出回っているかと言うと、VB.NET ではインテリセンスで Value が出て、C# では Value2 が出るため（Value プロパティにはパラメータがあるが、C# はパラメータ付きプロパティをサポートしていないため）で実質的な違いはないようです。 
+Parameterized Properties in C# and the mystery of Value2 in Excel – .NET4Office
+
+ReleaseComObject と FinalReleaseComObject
+COM の開放に FinalReleaseComObject を使っているものもありましたが、 
+How to properly release Excel COM objects: C# code examples によると、 FinalReleaseComObject を使うのは冗長のようですので、サンプルコードではReleaseComObject を使っています。
 
