@@ -1,0 +1,176 @@
+※参考サイト： https://qiita.com/midori44/items/acab9106e6dad9653e73
+
+どうして検索上位がMicrosoft.Office.Interop.Excelを使う方法ばかりなのか
+Excel操作といえば VBA であり、豊富な VBA のサンプルが数多く存在すること
+VB.NET と VBA は構文がほぼ一緒であるため、VBA で書かれたコードの多くがMicrosoft.Office.Interop.Excelを使えば VB.NET でもそのまま動作すること
+C# と VB.NET は共通のライブラリが使用できること
+という歴史的、言語的な理由からだと思われます。
+
+しかし、Microsoft.Office.Interop.Excelを使う方法は以下に挙げる理由によりオススメしません。
+今から書くのであれば、まず ClosedXML や NPOI といったオープンソースライブラリの使用を検討するべきです。
+
+（以下、「COM参照」を「Microsoft.Office.Interop.Excelを使ってExcelを外部操作する手法」という意味で使用させていただきます。COMの意味については https://ja.wikipedia.org/wiki/Component_Object_Model などを参照してください）
+
+Microsoft.Office.Interop.Excelを使う方法を推奨しない理由
+処理が遅い
+正しくは、「注意して書かなければ」とても処理が遅くなる、です。
+COM参照では、実際に裏でExcelアプリケーションを立ち上げて操作することでExcelファイルを読み書きします。
+そのためまず最初にEXCEL.EXEが起動するための時間がかかります。
+起動してからもシートやセルへのアクセスはExcelを経由するため、できるだけアクセス回数を減らすような実装方法を意識する必要があります。
+
+Excelのインストールが必須
+当然ですが、Excelアプリケーションを操作するためにはExcelがインストールされている必要があります。
+exe形式にして配布する場合、ExcelがインストールされていないPCでは動作しません。
+また、サーバーサイドで実装した場合はOfficeのライセンス違反となる可能性があります。
+（参考: https://support.microsoft.com/ja-jp/kb/257757 ）
+
+プロセス解放漏れのリスク
+推奨できない最大の理由。
+冒頭で述べた、COMオブジェクト解放が書かれていない情報を参考にしてはいけないのはこのためです。
+C# および VB.NET では、不要になったメモリをガベージコレクタが自動的に解放してくれます。
+しかしCOM参照の場合は、「このExcelはもう使用しません」と宣言しない限り、自動的に解放されることはありません。
+この宣言が非常に厄介で、参照したブック、参照したシート、参照したセルの全てに対してSystem.Runtime.InteropServices.Marshal.ReleaseComObject()をしなければいけないため、正しくコードを書かなければ簡単にCOMオブジェクト解放漏れが発生します。
+もし解放漏れが残ったままプログラムが途中で終了してしまった場合、プロセスにEXCEL.EXEがいつまでも残り続けることになります。
+20160407.PNG
+↑ 極端な例ですが、わりと冗談ではないです
+
+オープンソースライブラリを使用する
+上記の問題を避けるためにもEXCEL.EXEを使用しないライブラリを使って開発することを強くオススメします。
+ここでは ClosedXML と NPOI の2つを紹介します。
+自分は使ったこと無いのですが EPPlus も評判が良さそうです。
+
+ClosedXML
+https://closedxml.codeplex.com/
+
+Microsoft は Office 2007 から、それまでの独自規格(.xls, .doc, .ppt)を廃止して、オープンな規格であるOpen XML(.xlsx, .docx, .pptx)に移行しました。
+そのOpen XMLを扱うために提供されているライブラリがDocumentFormat.OpenXmlなのですが、これがExcelファイルを扱うには使い勝手の悪いものであったため、Excel処理の部分だけを使いやすい形式にラップしたライブラリがClosedXMLになります。
+
+メリット
+コア部分が Microsoft の純正ライブラリであるという安心感
+後述の NPOI よりも扱いやすい
+
+デメリット
+Open XML規格用に作られたものであるため、旧形式ファイル(.xls)を読み込むことができない
+
+サンプルコード
+Excelファイルを読み込んで、A列のセルの値を先頭行から最終行まで取得するサンプル
+
+ClosedXML
+using ClosedXML.Excel;
+
+XLWorkbook workbook = new XLWorkbook("d:\\Book1.xlsx");
+IXLWorksheet worksheet = workbook.Worksheet(1);
+int lastRow = worksheet.LastRowUsed().RowNumber();
+for (int i = 1; i <= lastRow; i++)
+{
+    IXLCell cell = worksheet.Cell(i, 1);
+    Console.WriteLine(cell.Value);
+}
+NPOI
+https://npoi.codeplex.com/
+
+NPOIは、15年もの歴史を持つJavaライブラリApache POI( https://poi.apache.org/ )の.NET移植版。
+2012年頃までは旧形式ファイル(.xls)にしか対応していませんでしたが、バージョン2.0になってから.xlsx形式も扱えるようになりました。
+
+メリット
+移植元である Apache POI には長年使用されてきた実績がある
+新形式ファイル(.xlsx)と旧形式ファイル(.xls)の両方に対応している
+ClosedXML よりも高速
+
+デメリット
+とくになし
+
+サンプルコード
+NPOI
+using NPOI.SS.UserModel;
+
+// （WorkbookFactory.Create()を使ってinterfaceで受け取れば、xls, xlsxの両方に対応できます）
+IWorkbook workbook = WorkbookFactory.Create("d:\\Book1.xlsx");
+ISheet worksheet = workbook.GetSheetAt(0);
+int lastRow = worksheet.LastRowNum;
+for (int i = 0; i <= lastRow; i++)
+{
+    IRow row = worksheet.GetRow(i);
+    ICell cell = row?.GetCell(0);
+    Console.WriteLine(cell?.StringCellValue);
+}
+個人的には、旧形式の対応が不要なら ClosedXML のほうが使いやすいと感じています。
+
+ClosedXMLのほうがセルの取得方法が直感的
+NPOIでは空行または空セルを参照するとオブジェクトがnullになってしまう（しかし C# 6.0 でnull条件演算子?.が追加されたので、上記サンプルのように簡潔に書けるようになりました）
+ClosedXMLでは行番号や列番号が0でなく1から始まる（好みの問題ですが、ExcelシートはA1から始まるので行番号とインデックスが一致する）
+どうしてもMicrosoft.Office.Interop.Excelを使いたい場合
+デメリットは冒頭で挙げましたが、COM参照を使うメリットもあります。
+
+実は ClosedXML や NPOI だと、まれにファイルによっては読み込みに失敗することがあります。
+経験上、Excelシートに埋め込まれた画像やマクロなどが原因となってエラーになることが多いです。
+COM参照であれば実際にファイルを開くのはExcelアプリケーションなので、マクロ付きであろうが拡張子が.csvになっていようが（Excelのバージョンが古くない限り）どんなファイルでも読み込むことができます。
+
+サンプルコード
+先述したCOMオブジェクトの解放を確実にやるのであれば、先ほどのサンプルはここまで書く必要があります。
+
+Microsoft.Office.Interop.Excel
+using System.Runtime.InteropServices;
+using Microsoft.Office.Interop.Excel;
+
+var excelApplication = new Microsoft.Office.Interop.Excel.Application();
+try
+{
+    Workbooks workbooks = excelApplication.Workbooks;
+    try
+    {
+        Workbook workbook = workbooks.Open("d:\\Book1.xlsx");
+        try
+        {
+            Sheets worksheets = workbook.Sheets;
+            try
+            {
+                Worksheet worksheet = worksheets[1];
+                try
+                {
+                    // 使用範囲を一括で二次元配列にコピー
+                    Object[,] rangeArray;
+                    Range usedRange = worksheet.UsedRange;
+                    try
+                    {
+                        rangeArray = usedRange.Value;
+                    }
+                    finally { Marshal.ReleaseComObject(usedRange); }
+
+                    // 二次元配列に対してループを回す
+                    int lastRow = rangeArray.GetLength(0);
+                    for (int i = 0; i < lastRow; i++)
+                    {
+                        Console.WriteLine(rangeArray[i, 0]);
+                    }
+                }
+                finally { Marshal.ReleaseComObject(worksheet); }
+            }
+            finally { Marshal.ReleaseComObject(worksheets); }
+        }
+        finally
+        {
+            if (workbook != null)
+            {
+                workbook.Close(false);
+            }
+            Marshal.ReleaseComObject(workbook);
+        }
+    }
+    finally { Marshal.ReleaseComObject(workbooks); }
+}
+finally
+{
+    if (excelApplication != null)
+    {
+        excelApplication.Quit();
+    }
+    Marshal.ReleaseComObject(excelApplication);
+}
+COM参照で書く際の注意事項としては、
+
+Workbook workbook = excelApplication.Workbooks.Open("d:\\Book1.xlsx");のように繋げて書いてしまうと、Workbooksオブジェクトに対してReleaseComObject()できなくなるため、すべて変数に割り当てるようにします。
+finally{}の中でMarshal.ReleaseComObject()を呼び出すことによって、どこで例外が発生しても確実にCOMオブジェクトを解放することができます（が、毎回ここまで書くのは大変なので何度も使うのであればIDisposableの実装クラスを作成したほうがいいです）。
+ループの中で直接Cellオブジェクトを読んでしまうと非常に時間がかかるため、セルの値を取得するだけであれば、あらかじめ必要なシート範囲を二次元オブジェクト配列にコピーすることで劇的に高速化できます。
+最後に
+サンプルコードでは触りの部分だけしか紹介できていないので、書き込みや保存については各ライブラリのドキュメントや他の紹介記事を参照ください。
